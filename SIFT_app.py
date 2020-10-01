@@ -12,27 +12,34 @@ from python_qt_binding import loadUi
 from wrapper import VideoCapture
 
 
+def convert_cv_to_pixmap(cv_img):
+    cv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+    height, width, channel = cv_img.shape
+    bytesPerLine = channel * width
+    q_img = QtGui.QImage(
+        cv_img.data, width, height, bytesPerLine, QtGui.QImage.Format_RGB888
+    )
+    return QtGui.QPixmap.fromImage(q_img)
+
+
 class SIFTApp(QtWidgets.QMainWindow):
-    def __init__(self):
-        super(SIFTApp, self).__init__()
+    def __init__(self, camera_number):
+        super().__init__()
         loadUi("SIFT_app.ui", self)
 
-        self._cam_id = 0
-        self._cam_fps = 2
-        self._is_cam_enabled = False
-        self._is_template_loaded = False
+        self.fps = 10
+        self.camera_enabled = False
+        self.template_loaded = False
 
         self.browse_button.clicked.connect(self.SLOT_browse_button)
         self.toggle_cam_button.clicked.connect(self.SLOT_toggle_camera)
 
-        self.camera = VideoCapture(self._cam_id)
-        self.camera.set(3, 320)
-        self.camera.set(4, 240)
+        self.camera = VideoCapture(camera_number)
 
         # Timer used to trigger the camera
         self._timer = QtCore.QTimer(self)
         self._timer.timeout.connect(self.SLOT_query_camera)
-        self._timer.setInterval(1000 / self._cam_fps)
+        self._timer.setInterval(1000 / self.fps)
 
         self.MIN_MATCH_COUNT = 10
         self.sift = cv2.SIFT_create()
@@ -55,16 +62,8 @@ class SIFTApp(QtWidgets.QMainWindow):
 
         pixmap = QtGui.QPixmap(self.template_path)
         self.template_label.setPixmap(pixmap)
+        self.template_loaded = True
         print("Loaded template image file: " + self.template_path)
-
-    def convert_cv_to_pixmap(self, cv_img):
-        cv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
-        height, width, channel = cv_img.shape
-        bytesPerLine = channel * width
-        q_img = QtGui.QImage(
-            cv_img.data, width, height, bytesPerLine, QtGui.QImage.Format_RGB888
-        )
-        return QtGui.QPixmap.fromImage(q_img)
 
     def SLOT_query_camera(self):
         ret, frame = self.camera.read()
@@ -72,10 +71,7 @@ class SIFTApp(QtWidgets.QMainWindow):
         grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         keypoints, descriptors = self.sift.detectAndCompute(grey, None)
 
-        if (
-            self.template_keypoints is not None
-            and self.template_descriptors is not None
-        ):
+        if self.template_loaded:
             FLANN_INDEX_KDTREE = 1
             matcher = cv2.FlannBasedMatcher(
                 {"algorithm": FLANN_INDEX_KDTREE, "trees": 5}, {"checks": 50}
@@ -118,23 +114,23 @@ class SIFTApp(QtWidgets.QMainWindow):
                 **draw_params
             )
 
-        pixmap = self.convert_cv_to_pixmap(frame)
+        pixmap = convert_cv_to_pixmap(frame)
         self.live_image_label.setPixmap(pixmap)
 
     def SLOT_toggle_camera(self):
-        if self._is_cam_enabled:
+        if self.camera_enabled:
             self._timer.stop()
-            self._is_cam_enabled = False
+            self.camera_enabled = False
             self.toggle_cam_button.setText("&Enable camera")
         else:
             self._timer.start()
-            self._is_cam_enabled = True
+            self.camera_enabled = True
             self.toggle_cam_button.setText("&Disable camera")
 
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
-    window = SIFTApp()
+    window = SIFTApp(2)
     window.show()
     app.exec_()
     window.camera.release()
